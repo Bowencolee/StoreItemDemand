@@ -10,6 +10,7 @@ library(timetk) # time series plots
 library(embed) # target encoding
 library(discrim) # naive bayes
 library(ranger) # random forests
+library(forecast) # ARIMA models
 
 
 ### DATA ###
@@ -220,6 +221,140 @@ es_preds313 <- es_fullfit313 %>%
 
 p4 <- es_fullfit313 %>%
   modeltime_forecast(h = "3 months", actual_data = train313) %>%
+  plot_modeltime_forecast(.interactive=FALSE)
+
+
+
+plotly::subplot(p1,p2,p3,p4, nrows = 2)
+
+##### ARIMA Models #####
+train749 <- store_train %>%
+  filter(store==7, item==49)
+test749 <- store_test %>%
+  filter(store==7, item==49)
+
+train313 <- store_train %>%
+  filter(store==3, item==13)
+test313 <- store_test %>%
+  filter(store==3, item==13)
+
+cv_split749 <- time_series_split(train749, assess="3 months", cumulative = TRUE)
+cv_split313 <- time_series_split(train313, assess="3 months", cumulative = TRUE)
+
+recipe749 <- recipe(sales~., data=train749) %>%
+  step_rm(store, item) %>%
+  step_date(date, features="dow") %>%
+  step_date(date, features="month") %>%
+  step_date(date, features="year") %>%
+  step_date(date, features="doy") %>%
+  step_date(date, features="decimal") %>%
+  step_range(date_doy, min=0, max=pi) %>%
+  step_mutate(sinDOY=sin(date_doy), cosDOY=cos(date_doy))
+
+recipe313 <- recipe(sales~., data=train313) %>%
+  step_rm(store, item) %>%
+  step_date(date, features="dow") %>%
+  step_date(date, features="month") %>%
+  step_date(date, features="year") %>%
+  step_date(date, features="doy") %>%
+  step_date(date, features="decimal") %>%
+  step_range(date_doy, min=0, max=pi) %>%
+  step_mutate(sinDOY=sin(date_doy), cosDOY=cos(date_doy))
+
+
+arima_model <- arima_reg(seasonal_period=365,
+                         non_seasonal_ar=5, # default max p to tune
+                         non_seasonal_ma=5, # default max q to tune
+                         seasonal_ar=2, # default max P to tune
+                         seasonal_ma=2, #default max Q to tune
+                         non_seasonal_differences=2, # default max d to tune
+                         seasonal_differences=2 #default max D to tune
+                         ) %>%
+  set_engine("auto_arima")
+
+arima_wf749 <- workflow() %>%
+  add_recipe(recipe749) %>%
+  add_model(arima_model) %>%
+  fit(data=training(cv_split749))
+
+arima_wf313 <- workflow() %>%
+  add_recipe(recipe313) %>%
+  add_model(arima_model) %>%
+  fit(data=training(cv_split313))
+
+
+cv_split749 %>%
+  tk_time_series_cv_plan() %>% #Put into a data frame
+  plot_time_series_cv_plan(date, sales, .interactive=FALSE)
+
+cv_split313 %>%
+  tk_time_series_cv_plan() %>% #Put into a data frame
+  plot_time_series_cv_plan(date, sales, .interactive=FALSE)
+
+
+### 7/49 ###
+## Cross-validate to tune model
+cv_results749 <- modeltime_calibrate(arima_wf749,
+                                     new_data = testing(cv_split749))
+
+## Visualize CV results
+p1 <- cv_results749 %>%
+  modeltime_forecast(
+    new_data = testing(cv_split749),
+    actual_data = train749) %>%
+  plot_modeltime_forecast(.interactive=F)
+
+## Evaluate the accuracy
+cv_results749 %>%
+  modeltime_accuracy() %>%
+  table_modeltime_accuracy(.interactive = FALSE)
+
+## Refit the data
+arima_fullfit749 <- cv_results749 %>%
+  modeltime_refit(data = train749)
+
+arima_preds749 <- arima_fullfit749 %>%
+  modeltime_forecast(new_data = test749) %>%
+  rename(date=.index, sales=.value) %>%
+  select(date, sales) %>%
+  full_join(., y=test749, by="date") %>%
+  select(id, sales)
+
+p3 <- arima_fullfit749 %>%
+  modeltime_forecast(new_data = test749, actual_data = train749) %>%
+  plot_modeltime_forecast(.interactive=FALSE)
+
+
+### 3/13 ###
+## Cross-validate to tune model
+cv_results313 <- modeltime_calibrate(arima_wf313,
+                                     new_data = testing(cv_split313))
+
+## Visualize CV results
+p2 <- cv_results313 %>%
+  modeltime_forecast(
+    new_data = testing(cv_split313),
+    actual_data = train313) %>%
+  plot_modeltime_forecast(.interactive=F)
+
+## Evaluate the accuracy
+cv_results313 %>%
+  modeltime_accuracy() %>%
+  table_modeltime_accuracy(.interactive = FALSE)
+
+## Refit the data
+arima_fullfit313 <- cv_results313 %>%
+  modeltime_refit(data = train313)
+
+arima_preds313 <- arima_fullfit313 %>%
+  modeltime_forecast(new_data = test313) %>%
+  rename(date=.index, sales=.value) %>%
+  select(date, sales) %>%
+  full_join(., y=test313, by="date") %>%
+  select(id, sales)
+
+p4 <- arima_fullfit313 %>%
+  modeltime_forecast(new_data = test313, actual_data = train313) %>%
   plot_modeltime_forecast(.interactive=FALSE)
 
 
