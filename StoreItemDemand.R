@@ -360,3 +360,101 @@ p4 <- arima_fullfit313 %>%
 
 
 plotly::subplot(p1,p2,p3,p4, nrows = 2)
+##### Prophet Model #####
+train749 <- store_train %>%
+  filter(store==7, item==49)
+test749 <- store_test %>%
+  filter(store==7, item==49)
+
+train313 <- store_train %>%
+  filter(store==3, item==13)
+test313 <- store_test %>%
+  filter(store==3, item==13)
+
+cv_split749 <- time_series_split(train749, assess="3 months", cumulative = TRUE)
+cv_split313 <- time_series_split(train313, assess="3 months", cumulative = TRUE)
+
+cv_split749 %>%
+  tk_time_series_cv_plan() %>% #Put into a data frame
+  plot_time_series_cv_plan(date, sales, .interactive=FALSE)
+
+cv_split313 %>%
+  tk_time_series_cv_plan() %>% #Put into a data frame
+  plot_time_series_cv_plan(date, sales, .interactive=FALSE)
+
+## 7/49 ##
+prophet_model749 <- prophet_reg() %>%
+  set_engine(engine = "prophet") %>%
+  fit(sales ~ date, data = training(cv_split749))
+
+## Cross-validate to tune model
+cv_results749 <- modeltime_calibrate(prophet_model749,
+                                     new_data = testing(cv_split749))
+
+## Visualize CV results
+p1 <- cv_results749 %>%
+  modeltime_forecast(
+    new_data = testing(cv_split749),
+    actual_data = train749) %>%
+  plot_modeltime_forecast(.interactive=F)
+
+## Evaluate the accuracy
+cv_results749 %>%
+  modeltime_accuracy() %>%
+  table_modeltime_accuracy(.interactive = FALSE)
+
+## Refit the data
+prophet_fullfit749 <- cv_results749 %>%
+  modeltime_refit(data = train749)
+
+prophet_preds749 <- prophet_fullfit749 %>%
+  modeltime_forecast(h = "3 months") %>%
+  rename(date=.index, sales=.value) %>%
+  select(date, sales) %>%
+  full_join(., y=test749, by="date") %>%
+  select(id, sales)
+
+p3 <- prophet_fullfit749 %>%
+  modeltime_forecast(h = "3 months", actual_data = train749) %>%
+  plot_modeltime_forecast(.interactive=FALSE)
+
+
+### 3/13 ###
+prophet_model313 <- prophet_reg() %>%
+  set_engine(engine = "prophet") %>%
+  fit(sales ~ date, data = training(cv_split313))
+
+## Cross-validate to tune model
+cv_results313 <- modeltime_calibrate(prophet_model313,
+                                     new_data = testing(cv_split313))
+
+## Visualize CV results
+p2 <- cv_results313 %>%
+  modeltime_forecast(
+    new_data = testing(cv_split313),
+    actual_data = train313) %>%
+  plot_modeltime_forecast(.interactive=F)
+
+## Evaluate the accuracy
+cv_results313 %>%
+  modeltime_accuracy() %>%
+  table_modeltime_accuracy(.interactive = FALSE)
+
+## Refit the data
+prophet_fullfit313 <- cv_results313 %>%
+  modeltime_refit(data = train313)
+
+prophet_preds313 <- prophet_fullfit313 %>%
+  modeltime_forecast(h = "3 months") %>%
+  rename(date=.index, sales=.value) %>%
+  select(date, sales) %>%
+  full_join(., y=test313, by="date") %>%
+  select(id, sales)
+
+p4 <- prophet_fullfit313 %>%
+  modeltime_forecast(h = "3 months", actual_data = train313) %>%
+  plot_modeltime_forecast(.interactive=FALSE)
+
+
+
+plotly::subplot(p1,p2,p3,p4, nrows = 2)
